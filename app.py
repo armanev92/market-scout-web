@@ -66,27 +66,36 @@ def intraday_chart_with_signal(ticker: str):
         else:
             signal = "HOLD 🤝 (sideways)"
 
-        # Candlestick chart
+        # Candlestick chart with colors
         fig = go.Figure(data=[go.Candlestick(
             x=df.index,
             open=df['Open'], high=df['High'],
             low=df['Low'], close=df['Close'],
-            name="Candles"
+            name="Candles",
+            increasing_line_color="green",
+            decreasing_line_color="red",
+            increasing_fillcolor="green",
+            decreasing_fillcolor="red"
         )])
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"],
-                                 line=dict(color="blue", width=1), name="EMA 9"))
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"],
-                                 line=dict(color="orange", width=1), name="EMA 21"))
 
-        fig.update_layout(title=f"{ticker} Intraday (5m) Candlestick",
-                          xaxis_rangeslider_visible=False,
-                          template="plotly_dark",
-                          height=400)
+        # Overlay EMA lines
+        fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"],
+                                 line=dict(color="blue", width=1.5), name="EMA 9"))
+        fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"],
+                                 line=dict(color="orange", width=1.5), name="EMA 21"))
+
+        fig.update_layout(
+            title=f"{ticker} Intraday (5m) Candlestick",
+            xaxis_rangeslider_visible=False,
+            template="plotly_white",   # white background to make candles visible
+            height=600
+        )
 
         return fig, signal
 
     except Exception as e:
         return None, f"Error: {e}"
+
 
 # -------------------------------
 # Function: Trending stocks
