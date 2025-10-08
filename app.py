@@ -145,7 +145,7 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
     results = []
     for row in portfolio_rows:
         t = str(row["Ticker"]).upper().strip()
-        qty = float(row["Quantity"])
+        qty = st.number_input(f"Quantity {i+1}", min_value=0.0, step=0.0001, format="%.6f")
         cost = float(row["Cost"])
 
         try:
