@@ -18,8 +18,9 @@ def check_stock(ticker, ma_days):
 
         data[f"{ma_days}_MA"] = data["Close"].rolling(ma_days).mean()
 
+        # ✅ FIX: use last non-NaN value
         price = data["Close"].iloc[-1]
-        ma_value = data[f"{ma_days}_MA"].iloc[-1]
+        ma_value = data[f"{ma_days}_MA"].dropna().iloc[-1]
 
         if price > ma_value:
             return "PASS", f"{ticker} is trading above its {ma_days}-day moving average ({price:.2f} > {ma_value:.2f}).", data
@@ -56,11 +57,14 @@ def analyze_portfolio(portfolio):
             pl_pct = (price - cost) / cost * 100
 
             # Suggestion rules
+            ma200 = yf.download(ticker, period="6mo", interval="1d")["Close"].rolling(200).mean().dropna()
+            ma200_val = ma200.iloc[-1] if not ma200.empty else None
+
             if pl_pct < -15:
                 action = "SELL 🚨"
             elif pl_pct > 30:
                 action = "SELL (take profit)"
-            elif price > yf.download(ticker, period="6mo", interval="1d")["Close"].rolling(200).mean().iloc[-1]:
+            elif ma200_val and price > ma200_val:
                 action = "BUY MORE ✅"
             else:
                 action = "HOLD 🤝"
@@ -113,7 +117,16 @@ st.subheader("🔥 Top Trending Stocks (5d % Change)")
 if universe:
     tickers = [t.strip().upper() for t in universe.split(",")]
     trending = get_trending(tickers)
-    st.dataframe(trending)
+
+    if not trending.empty:
+        # ✅ Color format: green for gains, red for losses
+        def color_format(val):
+            color = "green" if val > 0 else "red"
+            return f"color: {color}; font-weight: bold;"
+
+        st.dataframe(trending.style.applymap(color_format, subset=["5d % Change"]))
+    else:
+        st.warning("No trending data available.")
 
 # -------------------------------
 # Portfolio Section
