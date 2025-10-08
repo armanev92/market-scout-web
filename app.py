@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Market Scout Pro", page_icon="📈", layout="wide")
 
@@ -97,6 +98,13 @@ st.subheader("🔎 Stock Checker – PASS/FAIL")
 ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
 
 if ticker:
+    # ✅ Get live price
+    try:
+        tkr = yf.Ticker(ticker)
+        live_price = tkr.fast_info["last_price"]
+    except:
+        live_price = None
+
     result, reason, data = check_stock(ticker.upper(), ma_days)
     if result == "PASS":
         st.success(f"✅ {result}")
@@ -104,11 +112,29 @@ if ticker:
         st.error(f"❌ {result}")
     st.write(reason)
 
+    if live_price:
+        st.metric(label=f"💲 Live Price ({ticker.upper()})", value=f"${live_price:.2f}")
+
     if data is not None:
         ma_col = f"{ma_days}_MA"
-        chart_data = data[["Close", ma_col]].copy()
-        chart_data.columns = ["Price", f"{ma_days}-Day MA"]
-        st.line_chart(chart_data)
+
+        # ✅ Use matplotlib for custom chart
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(data.index, data["Close"], label="Price (Daily Close)", color="blue")
+        ax.plot(data.index, data[ma_col], label=f"{ma_days}-Day MA", color="orange")
+
+        # Mark live price
+        if live_price:
+            ax.axhline(live_price, color="red", linestyle="--", linewidth=1.2)
+            ax.scatter(data.index[-1], live_price, color="red", zorder=5)
+            ax.text(data.index[-1], live_price, f" Live: ${live_price:.2f}",
+                    color="red", fontsize=9, verticalalignment="bottom")
+
+        ax.set_title(f"{ticker.upper()} Price vs {ma_days}-Day MA")
+        ax.set_ylabel("Price ($)")
+        ax.legend()
+
+        st.pyplot(fig)
 
 # -------------------------------
 # Trending Section
