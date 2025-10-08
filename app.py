@@ -3,6 +3,9 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import datetime
+import requests
+from textblob import TextBlob
 
 st.set_page_config(page_title="Market Scout Pro", page_icon="📈", layout="wide")
 st.title("📈 Market Scout – Pro Dashboard")
@@ -36,16 +39,12 @@ def _live_price_now(ticker: str) -> float | None:
 # -------------------------------
 # Function: Intraday chart + AI trading signal
 # -------------------------------
-import datetime
-
 def intraday_chart_with_signal(ticker: str):
     try:
-        # ✅ Get 5 days of 5m data (so Yahoo gives us candles)
         df = yf.download(ticker, period="5d", interval="5m", auto_adjust=False, progress=False)
         if df.empty:
             return None, "No intraday data available."
 
-        # Keep only today's date
         today = datetime.datetime.now().date()
         df = df[df.index.date == today]
         if df.empty:
@@ -67,7 +66,6 @@ def intraday_chart_with_signal(ticker: str):
         ema21 = float(latest["EMA21"])
         rsi = float(latest["RSI"])
 
-        # AI Signal
         if price > ema9 > ema21 and rsi < 70:
             signal = "BUY ✅ (bullish momentum)"
         elif price < ema21 or rsi > 70:
@@ -77,7 +75,6 @@ def intraday_chart_with_signal(ticker: str):
 
         # Candlestick chart
         fig = go.Figure()
-
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df['Open'],
@@ -87,11 +84,7 @@ def intraday_chart_with_signal(ticker: str):
             name="Candles",
             increasing_line_color="green",
             decreasing_line_color="red",
-            increasing_fillcolor="lightgreen",
-            decreasing_fillcolor="pink"
         ))
-
-        # Add EMAs
         fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"], line=dict(color="blue", width=1.5), name="EMA 9"))
         fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"], line=dict(color="orange", width=1.5), name="EMA 21"))
 
@@ -104,11 +97,53 @@ def intraday_chart_with_signal(ticker: str):
         )
 
         return fig, signal
-
     except Exception as e:
         return None, f"Error: {e}"
 
+# -------------------------------
+# Function: News + Sentiment
+# -------------------------------
+def get_news_headlines(ticker: str, max_items: int = 5):
+    try:
+        url = f"https://query1.finance.yahoo.com/v1/finance/search?q={ticker}"
+        r = requests.get(url, timeout=5).json()
+        news = []
+        if "news" in r:
+            for item in r["news"][:max_items]:
+                title = item.get("title")
+                link = item.get("link")
+                if title and link:
+                    news.append((title, link))
+        return news
+    except Exception:
+        return []
 
+def analyze_sentiment(texts):
+    if not texts:
+        return "Neutral 🟡", []
+    scores = []
+    for t in texts:
+        polarity = TextBlob(t).sentiment.polarity
+        if polarity > 0.15:
+            scores.append(1)
+        elif polarity < -0.15:
+            scores.append(-1)
+        else:
+            scores.append(0)
+
+    avg = np.mean(scores)
+    if avg > 0:
+        sentiment = "Positive 🟢"
+    elif avg < 0:
+        sentiment = "Negative 🔴"
+    else:
+        sentiment = "Neutral 🟡"
+
+    cumulative = np.cumsum(scores).tolist()
+    return sentiment, cumulative
+
+def sentiment_badge(sentiment):
+    return f"**{sentiment}**"
 
 # -------------------------------
 # Function: Trending stocks
@@ -120,14 +155,11 @@ def get_trending(tickers: list[str]) -> pd.DataFrame:
             close = yf.download(t, period="1mo", interval="1d", auto_adjust=True, progress=False)["Close"]
             if isinstance(close, pd.Series):
                 close = close.to_frame(name=t)
-
             if close.shape[0] < 5:
                 rows.append({"Ticker": t, "Live Price": None, "5d % Change": None})
                 continue
-
             change_5d = float((close.iloc[-1] / close.iloc[-5] - 1.0) * 100.0)
             live_price = _live_price_now(t)
-
             rows.append({
                 "Ticker": t,
                 "Live Price": round(live_price, 2) if live_price else None,
@@ -135,7 +167,6 @@ def get_trending(tickers: list[str]) -> pd.DataFrame:
             })
         except Exception:
             rows.append({"Ticker": t, "Live Price": None, "5d % Change": None})
-
     return pd.DataFrame(rows)
 
 # -------------------------------
@@ -143,11 +174,10 @@ def get_trending(tickers: list[str]) -> pd.DataFrame:
 # -------------------------------
 def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
     results = []
-    for row in portfolio_rows:
+    for i, row in enumerate(portfolio_rows):
         t = str(row["Ticker"]).upper().strip()
-        qty = st.number_input(f"Quantity {i+1}", min_value=0.0, step=0.0001, format="%.6f")
+        qty = row["Quantity"]
         cost = float(row["Cost"])
-
         try:
             lp = _live_price_now(t)
             if lp is None:
@@ -164,7 +194,6 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
             else:
                 ma200 = np.nan
 
-            # AI Action logic
             if not np.isnan(pnl_pct) and pnl_pct < -0.15:
                 action = "SELL 🚨"
                 why = "Unrealized loss greater than 15%."
@@ -173,26 +202,33 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
                 why = "Unrealized gain greater than 30%."
             elif not np.isnan(ma200) and lp > ma200:
                 action = "BUY MORE ✅"
-                why = "Price above 200-day MA (long-term uptrend)."
+                why = "Price above 200-day MA."
             else:
                 action = "HOLD 🤝"
-                why = "Within normal range or trend unclear."
+                why = "Within normal range."
+
+            # ✅ News + Sentiment
+            headlines = get_news_headlines(t)
+            sentiment, cumulative_trend = analyze_sentiment([h[0] for h in headlines])
 
             results.append({
                 "Ticker": t,
                 "Quantity": qty,
                 "Cost Basis": round(cost, 2),
                 "Live Price": round(lp, 2),
-                "Value ($)": round(value, 2),     # ✅ FIX ADDED
+                "Value ($)": round(value, 2),
                 "P/L ($)": round(pnl, 2),
                 "P/L (%)": f"{pnl_pct*100:,.2f}%" if pnl_pct == pnl_pct else "N/A",
                 "Action": action,
-                "Reason": why
+                "Reason": why,
+                "News Sentiment": sentiment_badge(sentiment),
+                "Headlines": headlines,
+                "Sentiment Trend": cumulative_trend
             })
         except Exception:
             continue
-
     return pd.DataFrame(results)
+
 # -------------------------------
 # Sidebar Controls
 # -------------------------------
@@ -205,7 +241,6 @@ universe = st.sidebar.text_input("Enter tickers for Trending (comma separated):"
 # -------------------------------
 st.subheader("🔎 Stock Checker – AI Intraday Signal")
 ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
-
 if ticker:
     fig, signal = intraday_chart_with_signal(ticker.upper())
     if fig:
@@ -221,7 +256,6 @@ st.subheader("🔥 Top Trending Stocks (5d % Change + Live Price)")
 if universe.strip():
     tickers_list = [t.strip().upper() for t in universe.split(",") if t.strip()]
     trending = get_trending(tickers_list)
-
     if not trending.empty:
         def color_format(val):
             try:
@@ -236,47 +270,33 @@ if universe.strip():
 # Portfolio Section (Upgraded)
 # -------------------------------
 st.subheader("💼 Portfolio Analyzer")
-
-st.markdown("Add your stocks below. Enter Ticker, Quantity, and Purchase Price, "
-            "and we'll calculate live value, profit/loss, and AI recommendations.")
-
-# Build a dynamic form
 with st.form("portfolio_form"):
     num_stocks = st.number_input("How many stocks do you want to add?", min_value=1, max_value=15, value=3)
-    
     portfolio_rows = []
     for i in range(num_stocks):
         c1, c2, c3 = st.columns([2, 1, 1])
         ticker = c1.text_input(f"Ticker {i+1}", value="AAPL" if i == 0 else "")
-        qty = c2.number_input(f"Quantity {i+1}", min_value=0, value=10 if i == 0 else 0)
+        qty = c2.number_input(f"Quantity {i+1}", min_value=0.0, step=0.0001, format="%.6f", value=10.0 if i == 0 else 0.0)
         cost = c3.number_input(f"Purchase Price {i+1}", min_value=0.0, value=150.0 if i == 0 else 0.0)
         if ticker:
             portfolio_rows.append({"Ticker": ticker.upper(), "Quantity": qty, "Cost": cost})
-
     submitted = st.form_submit_button("Analyze Portfolio")
 
 if submitted and portfolio_rows:
     df_portfolio = analyze_portfolio(portfolio_rows)
-
     if not df_portfolio.empty:
-        st.dataframe(df_portfolio, hide_index=True, use_container_width=True)
+        st.dataframe(df_portfolio.drop(columns=["Headlines","Sentiment Trend"]), hide_index=True, use_container_width=True)
 
-        # Portfolio totals
-        try:
-            total_value = float(np.nansum(df_portfolio["Live Price"] * df_portfolio["Quantity"]))
-            total_pl = float(np.nansum(df_portfolio["P/L ($)"]))
-            c1, c2 = st.columns(2)
-            c1.metric("📊 Portfolio Value", f"${total_value:,.2f}")
-            c2.metric("💰 Total P/L", f"${total_pl:,.2f}")
-        except Exception:
-            pass
+        # Totals
+        total_value = float(np.nansum(df_portfolio["Live Price"] * df_portfolio["Quantity"]))
+        total_pl = float(np.nansum(df_portfolio["P/L ($)"]))
+        c1, c2 = st.columns(2)
+        c1.metric("📊 Portfolio Value", f"${total_value:,.2f}")
+        c2.metric("💰 Total P/L", f"${total_pl:,.2f}")
 
         # Charts
         st.markdown("### 📊 Portfolio Breakdown")
-
         col1, col2 = st.columns(2)
-
-        # Bar chart: Profit/Loss per stock
         with col1:
             fig_bar = go.Figure(go.Bar(
                 x=df_portfolio["Ticker"],
@@ -285,16 +305,24 @@ if submitted and portfolio_rows:
             ))
             fig_bar.update_layout(title="Profit/Loss per Stock", yaxis_title="P/L ($)")
             st.plotly_chart(fig_bar, use_container_width=True)
-
-        # Pie chart: Allocation by Value
         with col2:
-            fig_pie = go.Figure(go.Pie(
-                labels=df_portfolio["Ticker"],
-                values=df_portfolio["Value ($)"],
-                hole=0.4
-            ))
+            fig_pie = go.Figure(go.Pie(labels=df_portfolio["Ticker"], values=df_portfolio["Value ($)"], hole=0.4))
             fig_pie.update_layout(title="Portfolio Allocation by Value")
             st.plotly_chart(fig_pie, use_container_width=True)
 
-    else:
-        st.warning("No valid portfolio data.")
+        # News & Sentiment
+        st.markdown("### 📰 Latest News & Sentiment Trends")
+        for _, row in df_portfolio.iterrows():
+            st.markdown(f"**{row['Ticker']} — {row['News Sentiment']}**")
+            headlines = row["Headlines"]
+            if isinstance(headlines, list) and headlines:
+                for title, link in headlines:
+                    st.markdown(f"- [{title}]({link})")
+            else:
+                st.write("No recent headlines.")
+            trend = row["Sentiment Trend"]
+            if trend:
+                trend_df = pd.DataFrame({"Momentum": trend, "Headline #": range(1, len(trend)+1)})
+                st.line_chart(trend_df.set_index("Headline #"))
+
+st.caption("⚠️ Educational purposes only. This is not investment advice.")
