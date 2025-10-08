@@ -33,4 +33,5 @@ ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
 
 if ticker:
     result, reason = check_stock(ticker.upper())
-    st.subheader(res
+    st.subheader(result)   # ✅ properly closed parenthesis
+    st.write(reason)
