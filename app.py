@@ -153,6 +153,7 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
             if lp is None:
                 lp = _to_float(yf.Ticker(t).history(period="5d", interval="1d")["Close"].iloc[-1])
 
+            value = lp * qty
             pnl = (lp - cost) * qty
             pnl_pct = (lp - cost) / cost if cost else np.nan
 
@@ -163,6 +164,7 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
             else:
                 ma200 = np.nan
 
+            # AI Action logic
             if not np.isnan(pnl_pct) and pnl_pct < -0.15:
                 action = "SELL 🚨"
                 why = "Unrealized loss greater than 15%."
@@ -181,6 +183,7 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
                 "Quantity": qty,
                 "Cost Basis": round(cost, 2),
                 "Live Price": round(lp, 2),
+                "Value ($)": round(value, 2),     # ✅ FIX ADDED
                 "P/L ($)": round(pnl, 2),
                 "P/L (%)": f"{pnl_pct*100:,.2f}%" if pnl_pct == pnl_pct else "N/A",
                 "Action": action,
@@ -190,7 +193,6 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
             continue
 
     return pd.DataFrame(results)
-
 # -------------------------------
 # Sidebar Controls
 # -------------------------------
