@@ -176,7 +176,7 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
     results = []
     for i, row in enumerate(portfolio_rows):
         t = str(row["Ticker"]).upper().strip()
-        qty = row["Quantity"]
+        qty = float(row["Quantity"])
         cost = float(row["Cost"])
         try:
             lp = _live_price_now(t)
@@ -207,7 +207,6 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
                 action = "HOLD 🤝"
                 why = "Within normal range."
 
-            # ✅ News + Sentiment
             headlines = get_news_headlines(t)
             sentiment, cumulative_trend = analyze_sentiment([h[0] for h in headlines])
 
@@ -267,22 +266,36 @@ if universe.strip():
         st.warning("No trending data available.")
 
 # -------------------------------
-# Portfolio Section (Upgraded)
+# Portfolio Section (CSV Upload or Manual Input)
 # -------------------------------
 st.subheader("💼 Portfolio Analyzer")
-with st.form("portfolio_form"):
-    num_stocks = st.number_input("How many stocks do you want to add?", min_value=1, max_value=15, value=3)
-    portfolio_rows = []
-    for i in range(num_stocks):
-        c1, c2, c3 = st.columns([2, 1, 1])
-        ticker = c1.text_input(f"Ticker {i+1}", value="AAPL" if i == 0 else "")
-        qty = c2.number_input(f"Quantity {i+1}", min_value=0.0, step=0.0001, format="%.6f", value=10.0 if i == 0 else 0.0)
-        cost = c3.number_input(f"Purchase Price {i+1}", min_value=0.0, value=150.0 if i == 0 else 0.0)
-        if ticker:
-            portfolio_rows.append({"Ticker": ticker.upper(), "Quantity": qty, "Cost": cost})
-    submitted = st.form_submit_button("Analyze Portfolio")
 
-if submitted and portfolio_rows:
+uploaded_file = st.file_uploader("📂 Upload your portfolio CSV (columns: Stock, Quantity, Price Purchased)", type=["csv"])
+
+portfolio_rows = []
+if uploaded_file is not None:
+    df_csv = pd.read_csv(uploaded_file)
+    for _, row in df_csv.iterrows():
+        portfolio_rows.append({"Ticker": str(row["Stock"]).upper(), 
+                               "Quantity": float(row["Quantity"]), 
+                               "Cost": float(row["Price Purchased"])})
+else:
+    st.info("Or manually input your portfolio below:")
+    with st.form("portfolio_form"):
+        num_stocks = st.number_input("How many stocks do you want to add?", min_value=1, max_value=15, value=3)
+        for i in range(num_stocks):
+            c1, c2, c3 = st.columns([2, 1, 1])
+            ticker = c1.text_input(f"Ticker {i+1}", value="AAPL" if i == 0 else "")
+            qty = c2.number_input(f"Quantity {i+1}", min_value=0.0, step=0.0001, format="%.6f", value=10.0 if i == 0 else 0.0)
+            cost = c3.number_input(f"Purchase Price {i+1}", min_value=0.0, value=150.0 if i == 0 else 0.0)
+            if ticker:
+                portfolio_rows.append({"Ticker": ticker.upper(), "Quantity": qty, "Cost": cost})
+        submitted = st.form_submit_button("Analyze Portfolio")
+
+# -------------------------------
+# Portfolio Analysis
+# -------------------------------
+if portfolio_rows:
     df_portfolio = analyze_portfolio(portfolio_rows)
     if not df_portfolio.empty:
         st.dataframe(df_portfolio.drop(columns=["Headlines","Sentiment Trend"]), hide_index=True, use_container_width=True)
