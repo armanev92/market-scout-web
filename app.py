@@ -39,6 +39,8 @@ if ticker:
     if data is not None:
         ma_col = f"{ma_days}_MA"
         if ma_col in data.columns:
-            st.line_chart(data[["Close", ma_col]])
+            chart_data = data[["Close", ma_col]].copy()
+            chart_data.columns = ["Price", f"{ma_days}-Day MA"]  # rename for clarity
+            st.line_chart(chart_data)
         else:
             st.warning(f"Moving average column {ma_col} not found.")
