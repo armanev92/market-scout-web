@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Market Scout Pro", page_icon="📈", layout="wide")
 st.title("📈 Market Scout – Pro Dashboard")
@@ -176,9 +175,6 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
 st.sidebar.header("⚙️ Controls")
 universe = st.sidebar.text_input("Enter tickers for Trending (comma separated):",
                                  "AAPL, MSFT, TSLA, AMD, NVDA, RGTI")
-
-# 🔄 Auto-refresh every 60 sec
-st_autorefresh(interval=60 * 1000, key="refresh")
 
 # -------------------------------
 # Stock Checker
