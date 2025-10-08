@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Market Scout Pro", page_icon="📈", layout="wide")
 st.title("📈 Market Scout – Pro Dashboard")
@@ -34,7 +35,7 @@ def _live_price_now(ticker: str) -> float | None:
     return None
 
 # -------------------------------
-# Function: Check stock (with intraday chart + AI signal)
+# Function: Intraday chart + AI trading signal
 # -------------------------------
 def intraday_chart_with_signal(ticker: str):
     try:
@@ -53,10 +54,10 @@ def intraday_chart_with_signal(ticker: str):
         df["RSI"] = 100 - (100 / (1 + rs))
 
         latest = df.iloc[-1]
-        price = latest["Close"]
-        ema9 = latest["EMA9"]
-        ema21 = latest["EMA21"]
-        rsi = latest["RSI"]
+        price = float(latest["Close"])
+        ema9 = float(latest["EMA9"])
+        ema21 = float(latest["EMA21"])
+        rsi = float(latest["RSI"])
 
         # AI signal
         if price > ema9 > ema21 and rsi < 70:
@@ -73,9 +74,9 @@ def intraday_chart_with_signal(ticker: str):
             low=df['Low'], close=df['Close'],
             name="Candles"
         )])
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"], 
+        fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"],
                                  line=dict(color="blue", width=1), name="EMA 9"))
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"], 
+        fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"],
                                  line=dict(color="orange", width=1), name="EMA 21"))
 
         fig.update_layout(title=f"{ticker} Intraday (5m) Candlestick",
@@ -89,7 +90,7 @@ def intraday_chart_with_signal(ticker: str):
         return None, f"Error: {e}"
 
 # -------------------------------
-# Function: Trending stocks (5d % Change + Live Price)
+# Function: Trending stocks
 # -------------------------------
 def get_trending(tickers: list[str]) -> pd.DataFrame:
     rows = []
@@ -103,7 +104,7 @@ def get_trending(tickers: list[str]) -> pd.DataFrame:
                 rows.append({"Ticker": t, "Live Price": None, "5d % Change": None})
                 continue
 
-            change_5d = (close.iloc[-1] / close.iloc[-5] - 1.0) * 100.0
+            change_5d = float((close.iloc[-1] / close.iloc[-5] - 1.0) * 100.0)
             live_price = _live_price_now(t)
 
             rows.append({
@@ -160,90 +161,4 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
                 "Cost Basis": round(cost, 2),
                 "Live Price": round(lp, 2),
                 "P/L ($)": round(pnl, 2),
-                "P/L (%)": f"{pnl_pct*100:,.2f}%" if pnl_pct == pnl_pct else "N/A",
-                "Action": action,
-                "Reason": why
-            })
-        except Exception:
-            continue
-
-    return pd.DataFrame(results)
-
-# -------------------------------
-# Sidebar Controls
-# -------------------------------
-st.sidebar.header("⚙️ Controls")
-universe = st.sidebar.text_input("Enter tickers for Trending (comma separated):", 
-                                 "AAPL, MSFT, TSLA, AMD, NVDA, RGTI")
-
-# -------------------------------
-# Stock Checker (with Candlestick + AI Signal)
-# -------------------------------
-st.subheader("🔎 Stock Checker – PASS/FAIL + AI Trading Signal")
-ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
-
-if ticker:
-    fig, signal = intraday_chart_with_signal(ticker.upper())
-    if fig:
-        st.plotly_chart(fig, use_container_width=True)
-        st.subheader(f"AI Trading Signal: {signal}")
-    else:
-        st.warning(signal)
-
-# -------------------------------
-# Trending Section
-# -------------------------------
-st.subheader("🔥 Top Trending Stocks (5d % Change + Live Price)")
-if universe.strip():
-    tickers_list = [t.strip().upper() for t in universe.split(",") if t.strip()]
-    trending = get_trending(tickers_list)
-
-    if not trending.empty:
-        def color_format(val):
-            try:
-                return f"color: {'green' if val > 0 else 'red'}; font-weight: bold;"
-            except Exception:
-                return ""
-        st.dataframe(trending.style.applymap(color_format, subset=["5d % Change"]), hide_index=True)
-    else:
-        st.warning("No trending data available.")
-
-# -------------------------------
-# Portfolio Section
-# -------------------------------
-st.subheader("💼 Portfolio Analyzer")
-st.markdown("Enter your positions below (Ticker, Quantity, Cost Basis). One per line, e.g.: `AAPL,10,150`")
-
-with st.form("portfolio_form"):
-    tickers_input = st.text_area("Portfolio (Ticker,Quantity,Cost)", 
-                                 "AAPL,10,150\nTSLA,5,700\nRGTI,20,15")
-    submitted = st.form_submit_button("Analyze Portfolio")
-
-if submitted:
-    portfolio_rows = []
-    for line in tickers_input.splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) != 3:
-            continue
-        t, q, c = parts
-        try:
-            portfolio_rows.append({"Ticker": t.upper(), "Quantity": float(q), "Cost": float(c)})
-        except Exception:
-            continue
-
-    df_portfolio = analyze_portfolio(portfolio_rows)
-    if not df_portfolio.empty:
-        st.dataframe(df_portfolio, hide_index=True)
-        try:
-            total_value = float(np.nansum(df_portfolio["Live Price"] * df_portfolio["Quantity"]))
-            total_pl = float(np.nansum(df_portfolio["P/L ($)"]))
-            c1, c2 = st.columns(2)
-            c1.metric("Portfolio Value", f"${total_value:,.2f}")
-            c2.metric("Total P/L", f"${total_pl:,.2f}")
-        except Exception:
-            pass
-    else:
-        st.warning("No valid portfolio rows parsed. Use lines like `AAPL,10,150`.")
-
-# Footer
-st.caption("Educational purposes only. This is not investment advice.")
+                "P/L (%)": f"{pnl_pct*100:,.2f}%" if pnl_pct == pnl_pct else "N/A"*_
