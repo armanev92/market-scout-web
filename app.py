@@ -1,181 +1,119 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Market Scout Pro", page_icon="📈", layout="wide")
+st.set_page_config(page_title="📈 Market Scout Pro Dashboard", layout="wide")
 
-st.title("📈 Market Scout – Pro Dashboard")
+st.title("📊 Market Scout – Pro Dashboard")
 
-# -------------------------------
-# Function: Check stock with MA
-# -------------------------------
-def check_stock(ticker, ma_days):
-    try:
-        data = yf.download(ticker, period="6mo", interval="1d")
-        if data.empty:
-            return "FAIL", f"No data found for {ticker}", None
-
-        data[f"{ma_days}_MA"] = data["Close"].rolling(ma_days).mean()
-
-        # ✅ FIX: use last non-NaN value
-        price = data["Close"].iloc[-1]
-        ma_value = data[f"{ma_days}_MA"].dropna().iloc[-1]
-
-        if price > ma_value:
-            return "PASS", f"{ticker} is trading above its {ma_days}-day moving average ({price:.2f} > {ma_value:.2f}).", data
-        else:
-            return "FAIL", f"{ticker} is trading below its {ma_days}-day moving average ({price:.2f} < {ma_value:.2f}).", data
-
-    except Exception as e:
-        return "FAIL", f"Error checking {ticker}: {e}", None
-
-# -------------------------------
-# Function: Trending stocks
-# -------------------------------
-def get_trending(tickers):
-    try:
-        df = yf.download(tickers, period="1mo", interval="1d")["Close"]
-        changes = (df.iloc[-1] / df.iloc[-5] - 1) * 100  # % change in last 5 days
-        return changes.sort_values(ascending=False).to_frame("5d % Change")
-    except Exception as e:
-        return pd.DataFrame({"Error": [str(e)]})
-
-# -------------------------------
-# Function: Portfolio Analyzer
-# -------------------------------
-def analyze_portfolio(portfolio):
-    results = []
-    for stock in portfolio:
-        ticker = stock["Ticker"]
-        qty = stock["Quantity"]
-        cost = stock["Cost"]
-
-        try:
-            price = yf.download(ticker, period="5d", interval="1d")["Close"].iloc[-1]
-            pl = (price - cost) * qty
-            pl_pct = (price - cost) / cost * 100
-
-            # Suggestion rules
-            ma200 = yf.download(ticker, period="6mo", interval="1d")["Close"].rolling(200).mean().dropna()
-            ma200_val = ma200.iloc[-1] if not ma200.empty else None
-
-            if pl_pct < -15:
-                action = "SELL 🚨"
-            elif pl_pct > 30:
-                action = "SELL (take profit)"
-            elif ma200_val and price > ma200_val:
-                action = "BUY MORE ✅"
-            else:
-                action = "HOLD 🤝"
-
-            results.append({
-                "Ticker": ticker,
-                "Quantity": qty,
-                "Cost Basis": cost,
-                "Current Price": round(price, 2),
-                "P/L ($)": round(pl, 2),
-                "P/L (%)": round(pl_pct, 2),
-                "Action": action
-            })
-        except:
-            continue
-
-    return pd.DataFrame(results)
-
-# -------------------------------
 # Sidebar Controls
-# -------------------------------
 st.sidebar.header("⚙️ Controls")
-ma_days = st.sidebar.selectbox("Choose moving average window:", [20, 50, 200], index=1)
-universe = st.sidebar.text_input("Enter tickers for Trending (comma separated):", "AAPL, MSFT, TSLA, AMD, NVDA, RGTI")
+ma_days = st.sidebar.selectbox("Choose moving average window:", [20, 50, 100, 200], index=1)
+tickers_input = st.sidebar.text_input(
+    "Enter tickers for Trending (comma separated):",
+    "AAPL, MSFT, TSLA, AMD, NVDA, RGTI"
+)
+tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 
-# -------------------------------
-# Stock Checker
-# -------------------------------
+# === Stock Checker Section ===
 st.subheader("🔎 Stock Checker – PASS/FAIL")
-ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
+ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):", "AAPL")
+
+def get_data(ticker, ma_days):
+    try:
+        df = yf.download(ticker, period="6mo")
+        df[f"{ma_days}_MA"] = df["Close"].rolling(ma_days).mean()
+        return df
+    except Exception as e:
+        return None
 
 if ticker:
-    # ✅ Get live price
-    try:
-        tkr = yf.Ticker(ticker)
-        live_price = tkr.fast_info["last_price"]
-    except:
-        live_price = None
+    data = get_data(ticker, ma_days)
 
-    result, reason, data = check_stock(ticker.upper(), ma_days)
-    if result == "PASS":
-        st.success(f"✅ {result}")
-    else:
-        st.error(f"❌ {result}")
-    st.write(reason)
+    if data is not None and not data.empty:
+        close_price = data["Close"].iloc[-1]
+        ma_value = data[f"{ma_days}_MA"].dropna().iloc[-1]
 
-    if live_price:
-        st.metric(label=f"💲 Live Price ({ticker.upper()})", value=f"${live_price:.2f}")
+        # PASS/FAIL Logic
+        if close_price > ma_value:
+            st.success(f"✅ PASS\n\n{ticker} is trading above its {ma_days}-day moving average ({close_price:.2f} > {ma_value:.2f}).")
+        else:
+            st.error(f"❌ FAIL\n\n{ticker} is trading below its {ma_days}-day moving average ({close_price:.2f} < {ma_value:.2f}).")
 
-    if data is not None:
-        ma_col = f"{ma_days}_MA"
+        # Show Live Price
+        live_price = yf.Ticker(ticker).history(period="1d")["Close"].iloc[-1]
+        st.metric(label=f"💲 Live Price ({ticker})", value=f"${live_price:.2f}")
 
-        # ✅ Use matplotlib for custom chart
+        # === Chart with Live Price Overlay ===
         fig, ax = plt.subplots(figsize=(10, 5))
         ax.plot(data.index, data["Close"], label="Price (Daily Close)", color="blue")
-        ax.plot(data.index, data[ma_col], label=f"{ma_days}-Day MA", color="orange")
+        ax.plot(data.index, data[f"{ma_days}_MA"], label=f"{ma_days}-Day MA", color="orange")
 
-        # Mark live price
-        if live_price:
-            ax.axhline(live_price, color="red", linestyle="--", linewidth=1.2)
-            ax.scatter(data.index[-1], live_price, color="red", zorder=5)
-            ax.text(data.index[-1], live_price, f" Live: ${live_price:.2f}",
-                    color="red", fontsize=9, verticalalignment="bottom")
+        # Add live price marker
+        pct_diff = ((live_price - ma_value) / ma_value) * 100
+        ax.axhline(live_price, color="red", linestyle="--", linewidth=1.2)
+        ax.scatter(data.index[-1], live_price, color="red", zorder=5)
+
+        # Color % diff text
+        color = "green" if pct_diff >= 0 else "red"
+        ax.text(data.index[-1], live_price,
+                f" Live: ${live_price:.2f} ({pct_diff:+.2f}%)",
+                color=color, fontsize=9, verticalalignment="bottom")
 
         ax.set_title(f"{ticker.upper()} Price vs {ma_days}-Day MA")
         ax.set_ylabel("Price ($)")
         ax.legend()
-
         st.pyplot(fig)
 
-# -------------------------------
-# Trending Section
-# -------------------------------
+    else:
+        st.error(f"Error fetching data for {ticker}")
+
+# === Top Trending Stocks ===
 st.subheader("🔥 Top Trending Stocks (5d % Change)")
-if universe:
-    tickers = [t.strip().upper() for t in universe.split(",")]
-    trending = get_trending(tickers)
 
-    if not trending.empty:
-        # ✅ Color format: green for gains, red for losses
-        def color_format(val):
-            color = "green" if val > 0 else "red"
-            return f"color: {color}; font-weight: bold;"
+trending = {}
+for t in tickers:
+    try:
+        df = yf.download(t, period="5d")
+        if not df.empty:
+            change = ((df["Close"].iloc[-1] - df["Close"].iloc[0]) / df["Close"].iloc[0]) * 100
+            trending[t] = change
+    except:
+        pass
 
-        st.dataframe(trending.style.applymap(color_format, subset=["5d % Change"]))
-    else:
-        st.warning("No trending data available.")
+if trending:
+    trend_df = pd.DataFrame(trending.items(), columns=["Ticker", "5d % Change"]).sort_values("5d % Change", ascending=False)
+    def colorize(val):
+        color = "green" if val > 0 else "red"
+        return f"color: {color}"
+    st.dataframe(trend_df.style.applymap(colorize, subset=["5d % Change"]), height=250)
 
-# -------------------------------
-# Portfolio Section
-# -------------------------------
+# === Portfolio Analyzer ===
 st.subheader("💼 Portfolio Analyzer")
-st.markdown("Enter your positions below (Ticker, Quantity, Cost Basis).")
+portfolio_input = st.text_area("Enter your positions below (Ticker, Quantity, Cost Basis) one per line:",
+                               "AAPL,10,150\nTSLA,5,700\nAMD,20,100")
 
-with st.form("portfolio_form"):
-    tickers_input = st.text_area("Enter portfolio (Ticker,Quantity,Cost) one per line:",
-                                 "AAPL,10,150\nTSLA,5,700\nRGTI,20,15")
-    submitted = st.form_submit_button("Analyze Portfolio")
+portfolio = []
+for line in portfolio_input.splitlines():
+    try:
+        t, q, c = line.split(",")
+        portfolio.append((t.strip().upper(), int(q), float(c)))
+    except:
+        pass
 
-if submitted:
-    portfolio = []
-    for line in tickers_input.splitlines():
+if portfolio:
+    results = []
+    for t, q, c in portfolio:
         try:
-            t, q, c = line.split(",")
-            portfolio.append({"Ticker": t.strip().upper(), "Quantity": int(q), "Cost": float(c)})
+            live_price = yf.Ticker(t).history(period="1d")["Close"].iloc[-1]
+            pnl = (live_price - c) * q
+            decision = "✅ Hold / Buy More" if live_price > c else "❌ Consider Selling"
+            results.append((t, q, c, live_price, pnl, decision))
         except:
-            continue
+            pass
 
-    df_portfolio = analyze_portfolio(portfolio)
-    if not df_portfolio.empty:
-        st.dataframe(df_portfolio)
-    else:
-        st.warning("No valid portfolio data entered.")
+    if results:
+        port_df = pd.DataFrame(results, columns=["Ticker", "Quantity", "Cost Basis", "Live Price", "P/L ($)", "Decision"])
+        st.dataframe(port_df, height=300)
