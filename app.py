@@ -36,12 +36,20 @@ def _live_price_now(ticker: str) -> float | None:
 # -------------------------------
 # Function: Intraday chart + AI trading signal
 # -------------------------------
+import datetime
+
 def intraday_chart_with_signal(ticker: str):
     try:
-        # ✅ Don't auto_adjust, we need raw OHLC
-        df = yf.download(ticker, period="1d", interval="5m", auto_adjust=False, progress=False)
+        # ✅ Get 5 days of 5m data (so Yahoo gives us candles)
+        df = yf.download(ticker, period="5d", interval="5m", auto_adjust=False, progress=False)
         if df.empty:
             return None, "No intraday data available."
+
+        # Keep only today's date
+        today = datetime.datetime.now().date()
+        df = df[df.index.date == today]
+        if df.empty:
+            return None, "No intraday candles for today (market may be closed)."
 
         # Indicators
         df["EMA9"] = df["Close"].ewm(span=9, adjust=False).mean()
@@ -59,7 +67,7 @@ def intraday_chart_with_signal(ticker: str):
         ema21 = float(latest["EMA21"])
         rsi = float(latest["RSI"])
 
-        # AI signal
+        # AI Signal
         if price > ema9 > ema21 and rsi < 70:
             signal = "BUY ✅ (bullish momentum)"
         elif price < ema21 or rsi > 70:
@@ -67,12 +75,9 @@ def intraday_chart_with_signal(ticker: str):
         else:
             signal = "HOLD 🤝 (sideways)"
 
-        # -------------------
-        # Candlestick Chart
-        # -------------------
+        # Candlestick chart
         fig = go.Figure()
 
-        # Real candlesticks
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df['Open'],
@@ -86,19 +91,10 @@ def intraday_chart_with_signal(ticker: str):
             decreasing_fillcolor="pink"
         ))
 
-        # EMA overlays
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["EMA9"],
-            line=dict(color="blue", width=1.5),
-            name="EMA 9"
-        ))
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df["EMA21"],
-            line=dict(color="orange", width=1.5),
-            name="EMA 21"
-        ))
+        # Add EMAs
+        fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"], line=dict(color="blue", width=1.5), name="EMA 9"))
+        fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"], line=dict(color="orange", width=1.5), name="EMA 21"))
 
-        # Layout tweaks
         fig.update_layout(
             title=f"{ticker} Intraday (5m) Candlestick",
             xaxis_rangeslider_visible=False,
@@ -111,6 +107,7 @@ def intraday_chart_with_signal(ticker: str):
 
     except Exception as e:
         return None, f"Error: {e}"
+
 
 
 # -------------------------------
