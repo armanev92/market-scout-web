@@ -20,18 +20,17 @@ def _to_float(x) -> float:
     return float(x)
 
 def _live_price_now(ticker: str) -> float | None:
-    """Try fast_info, then fallback to 1m history."""
+    """Crypto (-USD) -> force 1m candles. Stocks -> fast_info fallback."""
     try:
-        fi = yf.Ticker(ticker).fast_info
-        last = fi.get("last_price", None)
-        if last is not None and not np.isnan(last):
-            return float(last)
-    except Exception:
-        pass
-    try:
-        h = yf.Ticker(ticker).history(period="1d", interval="1m")["Close"].dropna()
-        if not h.empty:
-            return float(h.iloc[-1])
+        if "-USD" in ticker:  # crypto handling
+            h = yf.Ticker(ticker).history(period="1d", interval="1m")["Close"].dropna()
+            if not h.empty:
+                return float(h.iloc[-1])
+        else:
+            fi = yf.Ticker(ticker).fast_info
+            last = fi.get("last_price", None)
+            if last is not None and not np.isnan(last):
+                return float(last)
     except Exception:
         pass
     return None
@@ -130,7 +129,6 @@ def analyze_sentiment(texts):
             scores.append(-1)
         else:
             scores.append(0)
-
     avg = np.mean(scores)
     if avg > 0:
         sentiment = "Positive 🟢"
@@ -138,7 +136,6 @@ def analyze_sentiment(texts):
         sentiment = "Negative 🔴"
     else:
         sentiment = "Neutral 🟡"
-
     cumulative = np.cumsum(scores).tolist()
     return sentiment, cumulative
 
@@ -174,9 +171,9 @@ def get_trending(tickers: list[str]) -> pd.DataFrame:
 # -------------------------------
 def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
     results = []
-    for i, row in enumerate(portfolio_rows):
+    for _, row in enumerate(portfolio_rows):
         t = str(row["Ticker"]).upper().strip()
-        qty = float(row["Quantity"])
+        qty = float(row["Quantity"])  # keep decimals (crypto friendly)
         cost = float(row["Cost"])
         try:
             lp = _live_price_now(t)
@@ -212,7 +209,7 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
 
             results.append({
                 "Ticker": t,
-                "Quantity": qty,
+                "Quantity": round(qty, 8),  # 👈 up to 8 decimals for BTC etc
                 "Cost Basis": round(cost, 2),
                 "Live Price": round(lp, 2),
                 "Value ($)": round(value, 2),
@@ -233,13 +230,13 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
 # -------------------------------
 st.sidebar.header("⚙️ Controls")
 universe = st.sidebar.text_input("Enter tickers for Trending (comma separated):",
-                                 "AAPL, MSFT, TSLA, AMD, NVDA, RGTI")
+                                 "AAPL, MSFT, TSLA, AMD, NVDA, RGTI, BTC-USD")
 
 # -------------------------------
 # Stock Checker
 # -------------------------------
 st.subheader("🔎 Stock Checker – AI Intraday Signal")
-ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
+ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA, BTC-USD):")
 if ticker:
     fig, signal = intraday_chart_with_signal(ticker.upper())
     if fig:
@@ -247,23 +244,6 @@ if ticker:
         st.subheader(f"🤖 AI Trading Signal: {signal}")
     else:
         st.warning(signal)
-
-# -------------------------------
-# Trending Section
-# -------------------------------
-st.subheader("🔥 Top Trending Stocks (5d % Change + Live Price)")
-if universe.strip():
-    tickers_list = [t.strip().upper() for t in universe.split(",") if t.strip()]
-    trending = get_trending(tickers_list)
-    if not trending.empty:
-        def color_format(val):
-            try:
-                return f"color: {'green' if val > 0 else 'red'}; font-weight: bold;"
-            except Exception:
-                return ""
-        st.dataframe(trending.style.applymap(color_format, subset=["5d % Change"]), hide_index=True)
-    else:
-        st.warning("No trending data available.")
 
 # -------------------------------
 # Portfolio Section (CSV Upload or Manual Input)
@@ -286,7 +266,7 @@ else:
         for i in range(num_stocks):
             c1, c2, c3 = st.columns([2, 1, 1])
             ticker = c1.text_input(f"Ticker {i+1}", value="AAPL" if i == 0 else "")
-            qty = c2.number_input(f"Quantity {i+1}", min_value=0.0, step=0.0001, format="%.6f", value=10.0 if i == 0 else 0.0)
+            qty = c2.number_input(f"Quantity {i+1}", min_value=0.0, step=0.00000001, format="%.8f", value=10.0 if i == 0 else 0.0)
             cost = c3.number_input(f"Purchase Price {i+1}", min_value=0.0, value=150.0 if i == 0 else 0.0)
             if ticker:
                 portfolio_rows.append({"Ticker": ticker.upper(), "Quantity": qty, "Cost": cost})
