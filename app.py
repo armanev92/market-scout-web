@@ -38,7 +38,8 @@ def _live_price_now(ticker: str) -> float | None:
 # -------------------------------
 def intraday_chart_with_signal(ticker: str):
     try:
-        df = yf.download(ticker, period="1d", interval="5m", auto_adjust=True, progress=False)
+        # ✅ Don't auto_adjust, we need raw OHLC
+        df = yf.download(ticker, period="1d", interval="5m", auto_adjust=False, progress=False)
         if df.empty:
             return None, "No intraday data available."
 
@@ -71,7 +72,7 @@ def intraday_chart_with_signal(ticker: str):
         # -------------------
         fig = go.Figure()
 
-        # Candlesticks (green = up, red = down)
+        # Real candlesticks
         fig.add_trace(go.Candlestick(
             x=df.index,
             open=df['Open'],
@@ -81,8 +82,8 @@ def intraday_chart_with_signal(ticker: str):
             name="Candles",
             increasing_line_color="green",
             decreasing_line_color="red",
-            increasing_fillcolor="green",
-            decreasing_fillcolor="red"
+            increasing_fillcolor="lightgreen",
+            decreasing_fillcolor="pink"
         ))
 
         # EMA overlays
@@ -97,19 +98,19 @@ def intraday_chart_with_signal(ticker: str):
             name="EMA 21"
         ))
 
-        # Layout
+        # Layout tweaks
         fig.update_layout(
             title=f"{ticker} Intraday (5m) Candlestick",
             xaxis_rangeslider_visible=False,
             template="plotly_white",
-            height=600
+            height=600,
+            yaxis_title="Price ($)"
         )
 
         return fig, signal
 
     except Exception as e:
         return None, f"Error: {e}"
-
 
 
 # -------------------------------
