@@ -231,41 +231,68 @@ if universe.strip():
         st.warning("No trending data available.")
 
 # -------------------------------
-# Portfolio Section
+# Portfolio Section (Upgraded)
 # -------------------------------
 st.subheader("💼 Portfolio Analyzer")
-st.markdown("Enter your positions below (Ticker, Quantity, Cost Basis). Example: `AAPL,10,150`")
 
+st.markdown("Add your stocks below. Enter Ticker, Quantity, and Purchase Price, "
+            "and we'll calculate live value, profit/loss, and AI recommendations.")
+
+# Build a dynamic form
 with st.form("portfolio_form"):
-    tickers_input = st.text_area("Portfolio (Ticker,Quantity,Cost)",
-                                 "AAPL,10,150\nTSLA,5,700\nRGTI,20,15")
+    num_stocks = st.number_input("How many stocks do you want to add?", min_value=1, max_value=15, value=3)
+    
+    portfolio_rows = []
+    for i in range(num_stocks):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        ticker = c1.text_input(f"Ticker {i+1}", value="AAPL" if i == 0 else "")
+        qty = c2.number_input(f"Quantity {i+1}", min_value=0, value=10 if i == 0 else 0)
+        cost = c3.number_input(f"Purchase Price {i+1}", min_value=0.0, value=150.0 if i == 0 else 0.0)
+        if ticker:
+            portfolio_rows.append({"Ticker": ticker.upper(), "Quantity": qty, "Cost": cost})
+
     submitted = st.form_submit_button("Analyze Portfolio")
 
-if submitted:
-    portfolio_rows = []
-    for line in tickers_input.splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) != 3:
-            continue
-        t, q, c = parts
-        try:
-            portfolio_rows.append({"Ticker": t.upper(), "Quantity": float(q), "Cost": float(c)})
-        except Exception:
-            continue
-
+if submitted and portfolio_rows:
     df_portfolio = analyze_portfolio(portfolio_rows)
+
     if not df_portfolio.empty:
-        st.dataframe(df_portfolio, hide_index=True)
+        st.dataframe(df_portfolio, hide_index=True, use_container_width=True)
+
+        # Portfolio totals
         try:
             total_value = float(np.nansum(df_portfolio["Live Price"] * df_portfolio["Quantity"]))
             total_pl = float(np.nansum(df_portfolio["P/L ($)"]))
             c1, c2 = st.columns(2)
-            c1.metric("Portfolio Value", f"${total_value:,.2f}")
-            c2.metric("Total P/L", f"${total_pl:,.2f}")
+            c1.metric("📊 Portfolio Value", f"${total_value:,.2f}")
+            c2.metric("💰 Total P/L", f"${total_pl:,.2f}")
         except Exception:
             pass
-    else:
-        st.warning("No valid portfolio rows parsed. Use lines like `AAPL,10,150`.")
 
-# Footer
-st.caption("⚠️ Educational purposes only. This is not investment advice.")
+        # Charts
+        st.markdown("### 📊 Portfolio Breakdown")
+
+        col1, col2 = st.columns(2)
+
+        # Bar chart: Profit/Loss per stock
+        with col1:
+            fig_bar = go.Figure(go.Bar(
+                x=df_portfolio["Ticker"],
+                y=df_portfolio["P/L ($)"],
+                marker=dict(color=np.where(df_portfolio["P/L ($)"] >= 0, "green", "red"))
+            ))
+            fig_bar.update_layout(title="Profit/Loss per Stock", yaxis_title="P/L ($)")
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # Pie chart: Allocation by Value
+        with col2:
+            fig_pie = go.Figure(go.Pie(
+                labels=df_portfolio["Ticker"],
+                values=df_portfolio["Value ($)"],
+                hole=0.4
+            ))
+            fig_pie.update_layout(title="Portfolio Allocation by Value")
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+    else:
+        st.warning("No valid portfolio data.")
