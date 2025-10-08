@@ -37,4 +37,8 @@ if ticker:
     st.write(reason)
 
     if data is not None:
-        st.line_chart(data[["Close", f"{ma_days}_MA"]])
+        ma_col = f"{ma_days}_MA"
+        if ma_col in data.columns:
+            st.line_chart(data[["Close", ma_col]])
+        else:
+            st.warning(f"Moving average column {ma_col} not found.")
