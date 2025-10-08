@@ -66,28 +66,42 @@ def intraday_chart_with_signal(ticker: str):
         else:
             signal = "HOLD 🤝 (sideways)"
 
-        # Candlestick chart with colors
-        fig = go.Figure(data=[go.Candlestick(
+        # -------------------
+        # Candlestick Chart
+        # -------------------
+        fig = go.Figure()
+
+        # Candlesticks (green = up, red = down)
+        fig.add_trace(go.Candlestick(
             x=df.index,
-            open=df['Open'], high=df['High'],
-            low=df['Low'], close=df['Close'],
+            open=df['Open'],
+            high=df['High'],
+            low=df['Low'],
+            close=df['Close'],
             name="Candles",
             increasing_line_color="green",
             decreasing_line_color="red",
             increasing_fillcolor="green",
             decreasing_fillcolor="red"
-        )])
+        ))
 
-        # Overlay EMA lines
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA9"],
-                                 line=dict(color="blue", width=1.5), name="EMA 9"))
-        fig.add_trace(go.Scatter(x=df.index, y=df["EMA21"],
-                                 line=dict(color="orange", width=1.5), name="EMA 21"))
+        # EMA overlays
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["EMA9"],
+            line=dict(color="blue", width=1.5),
+            name="EMA 9"
+        ))
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["EMA21"],
+            line=dict(color="orange", width=1.5),
+            name="EMA 21"
+        ))
 
+        # Layout
         fig.update_layout(
             title=f"{ticker} Intraday (5m) Candlestick",
             xaxis_rangeslider_visible=False,
-            template="plotly_white",   # white background to make candles visible
+            template="plotly_white",
             height=600
         )
 
@@ -95,6 +109,7 @@ def intraday_chart_with_signal(ticker: str):
 
     except Exception as e:
         return None, f"Error: {e}"
+
 
 
 # -------------------------------
