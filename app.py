@@ -161,4 +161,93 @@ def analyze_portfolio(portfolio_rows: list[dict]) -> pd.DataFrame:
                 "Cost Basis": round(cost, 2),
                 "Live Price": round(lp, 2),
                 "P/L ($)": round(pnl, 2),
-                "P/L (%)": f"{pnl_pct*100:,.2f}%" if pnl_pct == pnl_pct else "N/A"*_
+                "P/L (%)": f"{pnl_pct*100:,.2f}%" if pnl_pct == pnl_pct else "N/A",
+                "Action": action,
+                "Reason": why
+            })
+        except Exception:
+            continue
+
+    return pd.DataFrame(results)
+
+# -------------------------------
+# Sidebar Controls
+# -------------------------------
+st.sidebar.header("⚙️ Controls")
+universe = st.sidebar.text_input("Enter tickers for Trending (comma separated):",
+                                 "AAPL, MSFT, TSLA, AMD, NVDA, RGTI")
+
+# 🔄 Auto-refresh every 60 sec
+st_autorefresh(interval=60 * 1000, key="refresh")
+
+# -------------------------------
+# Stock Checker
+# -------------------------------
+st.subheader("🔎 Stock Checker – AI Intraday Signal")
+ticker = st.text_input("Enter a stock ticker (e.g., AAPL, AMD, TSLA):")
+
+if ticker:
+    fig, signal = intraday_chart_with_signal(ticker.upper())
+    if fig:
+        st.plotly_chart(fig, use_container_width=True)
+        st.subheader(f"🤖 AI Trading Signal: {signal}")
+    else:
+        st.warning(signal)
+
+# -------------------------------
+# Trending Section
+# -------------------------------
+st.subheader("🔥 Top Trending Stocks (5d % Change + Live Price)")
+if universe.strip():
+    tickers_list = [t.strip().upper() for t in universe.split(",") if t.strip()]
+    trending = get_trending(tickers_list)
+
+    if not trending.empty:
+        def color_format(val):
+            try:
+                return f"color: {'green' if val > 0 else 'red'}; font-weight: bold;"
+            except Exception:
+                return ""
+        st.dataframe(trending.style.applymap(color_format, subset=["5d % Change"]), hide_index=True)
+    else:
+        st.warning("No trending data available.")
+
+# -------------------------------
+# Portfolio Section
+# -------------------------------
+st.subheader("💼 Portfolio Analyzer")
+st.markdown("Enter your positions below (Ticker, Quantity, Cost Basis). Example: `AAPL,10,150`")
+
+with st.form("portfolio_form"):
+    tickers_input = st.text_area("Portfolio (Ticker,Quantity,Cost)",
+                                 "AAPL,10,150\nTSLA,5,700\nRGTI,20,15")
+    submitted = st.form_submit_button("Analyze Portfolio")
+
+if submitted:
+    portfolio_rows = []
+    for line in tickers_input.splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        if len(parts) != 3:
+            continue
+        t, q, c = parts
+        try:
+            portfolio_rows.append({"Ticker": t.upper(), "Quantity": float(q), "Cost": float(c)})
+        except Exception:
+            continue
+
+    df_portfolio = analyze_portfolio(portfolio_rows)
+    if not df_portfolio.empty:
+        st.dataframe(df_portfolio, hide_index=True)
+        try:
+            total_value = float(np.nansum(df_portfolio["Live Price"] * df_portfolio["Quantity"]))
+            total_pl = float(np.nansum(df_portfolio["P/L ($)"]))
+            c1, c2 = st.columns(2)
+            c1.metric("Portfolio Value", f"${total_value:,.2f}")
+            c2.metric("Total P/L", f"${total_pl:,.2f}")
+        except Exception:
+            pass
+    else:
+        st.warning("No valid portfolio rows parsed. Use lines like `AAPL,10,150`.")
+
+# Footer
+st.caption("⚠️ Educational purposes only. This is not investment advice.")
